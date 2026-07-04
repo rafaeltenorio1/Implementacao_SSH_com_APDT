@@ -145,7 +145,7 @@ def servidor(porta, senha):
                 canais_abertos.discard(cid)
                 pass  # cliente fechou o canal
 
-            elif tipo == "disconectado":
+            elif tipo == "desconectar":
                 break
 
             else:

@@ -26,20 +26,20 @@ def mostrar_apdt(apdt, token):
         print(f"  {cor('APDT:', C.GRAY)}  {t_str:<22}  {cor(apdt.estado, C.CYAN):<14}  pilha=[{cor(apdt.pilha_str(), C.PURPLE)}]")
 
 AJUDA = """
-  COMANDOS
-  ──────────────────────────────────────────────────────────────────────
-  canal <id>                       Abre canal          ex: canal C0
-  fecha <id>                       Fecha canal         ex: fecha C0
-  req <id do canal> <recurso>      Requisição          ex: req C0 shell
-  finaliza <id>                    Finaliza req        ex: finaliza C0
-  desconectar                      Encerra sessão
-  ────────────────────────────────────────────────────────────────────── 
+    COMANDOS
+  ────────────────────────────────────────────────────
+  abrir canal             Abre um novo canal
+  fechar canal            Fecha o canal do topo da pilha
+  abrir req <recurso>     Requisição de recurso  ex: abrir req shell
+  fechar req              Finaliza a requisição do topo
+  msg <texto>             Envia dados cifrados   ex: msg ola mundo
+  desconectar             Encerra a sessão
+  ────────────────────────────────────────────────────
+ 
 """
-# msg <id> <texto>        Envia dados         ex: msg C0 ola mundo
 """
   TESTES DE ERRO:
-  invalido <token>        Token fora de ordem (gera aviso, não para)
-  sair                    Fecha sem disconectar (pilha não fica vazia)
+  transicao <token>       Token fora de ordem (gera aviso, não para)
   pilha                   Mostra estado atual da pilha
   ──────────────────────────────────────────────────────────────────────
 """
@@ -117,35 +117,60 @@ def cliente(host, porta, usuario, senha):
                 break
             if not linha:
                 continue
+            # Reconhece comandos de duas palavras: "abrir canal", "fechar req", etc.
             partes = linha.split(None, 2)
-            cmd = partes[0].lower()
+            if len(partes) >= 2 and partes[0].lower() in ("abrir", "fechar", "finalizar"):
+                cmd = partes[0].lower() + " " + partes[1].lower()
+                resto = partes[2] if len(partes) > 2 else ""
+            else:
+                cmd = partes[0].lower()
+                resto = " ".join(partes[1:]) if len(partes) > 1 else ""
 
-            if cmd == "canal":
-                if len(partes) < 2:
-                    log("Uso: canal <id>", C.YELLOW)
-                    continue
-                cid = partes[1]
-                send_raw({"tipo":"canal_aberto","payload":cid,"canal":cid,"cifrado":False})
+            def canal_do_topo():
+                """O canal ativo é sempre o CHANid mais próximo do topo."""
+                for s in apdt.pilha:
+                    if s.startswith("CHAN:"): return s
+                return None
+
+            def req_do_topo():
+                """A requisição ativa é o REQid no topo (se existir)."""
+                return apdt.pilha[0] if apdt.pilha and apdt.pilha[0].startswith("REQ:") else None
+
+            if cmd == "abrir canal":
+                # ID gerado automaticamente pelo APDT (CHAN:0, CHAN:1...)
+                cid = f"CHAN:{apdt._chans}"
+                send_raw({"tipo": "canal_aberto", "payload": cid, "canal": cid, "cifrado": False})
                 tk("canal_aberto")
                 msg = recv()
                 if msg:
                     tk(msg["tipo"])
-                log(f"Canal {cid} " + ("aberto ✓" if msg["tipo"]=="canal_conf" else "recusado"), C.GREEN if msg.get("tipo")=="canal_conf" else C.RED)
+                    chan = canal_do_topo()
+                    if msg["tipo"] == "canal_conf":
+                        log(f"Canal {cor(chan or cid, C.CYAN)} aberto ✓", C.GREEN)
+                    else:
+                        log("Canal recusado pelo servidor", C.RED)
 
-            elif cmd == "fecha":
-                if len(partes) < 2:
-                    log("Uso: fecha <id>", C.YELLOW)
+            elif cmd == "fechar canal":
+                chan = canal_do_topo()
+                if not chan:
+                    log("Nenhum canal aberto para fechar", C.YELLOW);
                     continue
-                cid = partes[1]
-                send_raw({"tipo":"canal_fechado","payload":cid,"canal":cid,"cifrado":False})
+                log(f"Fechando {cor(chan, C.CYAN)} (topo da pilha)")
+                send_raw({"tipo": "canal_fechado", "payload": chan, "canal": chan, "cifrado": False})
                 tk("canal_fechado")
 
-            elif cmd == "req":
-                if len(partes) < 3:
-                    log("Uso: req <id> <recurso>", C.YELLOW)
+
+            elif cmd == "abrir req":
+                if not resto:
+                    log("Uso: abrir req <recurso>   ex: abrir req shell", C.YELLOW);
                     continue
-                cid, recurso = partes[1], partes[2]
-                send_raw({"tipo":"requisicao","payload":recurso,"canal":cid,"cifrado":False})
+                recurso = resto
+                chan = canal_do_topo()
+                if not chan:
+                    log("Abra um canal antes de fazer requisições", C.YELLOW);
+                    continue
+                log(f"→ requisicao [{chan}] recurso='{recurso}'")
+                send_raw({"tipo": "requisicao", "payload": recurso, "canal": chan, "cifrado": False})
                 tk("requisicao")
                 msg = recv()
                 if msg:
@@ -153,43 +178,55 @@ def cliente(host, porta, usuario, senha):
                     if msg["tipo"] == "dados" and msg.get("cifrado"):
                         log(f"← {cor(decifrar(fernet, msg['payload']), C.WHITE)}", C.GREEN)
 
-            elif cmd == "finaliza":
-                if len(partes) < 2:
-                    log("Uso: finaliza <id>", C.YELLOW)
+            elif cmd == "finalizar req":
+                req = req_do_topo()
+                chan = canal_do_topo()
+                if not req:
+                    log("Nenhuma requisição aberta para finalizar", C.YELLOW)
                     continue
-                cid = partes[1]
-                send_raw({"tipo":"req_finalizada","payload":"","canal":cid,"cifrado":False})
+                log(f"Finalizando {cor(req, C.PURPLE)} no canal {cor(chan or '?', C.CYAN)}")
+                send_raw({"tipo": "req_finalizada", "payload": "", "canal": chan or "", "cifrado": False})
                 tk("req_finalizada")
 
+
             elif cmd == "msg":
-                if len(partes) < 3:
-                    log("Uso: msg <id> <texto>", C.YELLOW)
+                if not resto:
+                    log("Uso: msg <texto>   ex: msg ola mundo", C.YELLOW);
                     continue
-                cid, texto = partes[1], partes[2]
-                send_raw({"tipo":"dados","payload":cifrar(fernet,texto),"canal":cid,"cifrado":True})
-                log(f"→ dados [{cid}] '{texto}' (cifrado)")
+                chan = canal_do_topo()
+                if not chan:
+                    log("Abra um canal antes de enviar dados", C.YELLOW);
+                    continue
+                log(f"→ dados [{chan}] '{resto}' (cifrado)")
+                send_raw({"tipo": "dados", "payload": cifrar(fernet, resto), "canal": chan, "cifrado": True})
                 tk("dados")
                 msg = recv()
                 if msg and msg.get("tipo") == "dados":
                     tk("dados")
-                    if msg.get("cifrado"): log(f"← {cor(decifrar(fernet,msg['payload']), C.WHITE)}", C.GREEN)
+                    if msg.get("cifrado"):
+                        log(f"← {cor(decifrar(fernet, msg['payload']), C.WHITE)}", C.GREEN)
+
 
             elif cmd == "desconectar":
                 canais = [s for s in apdt.pilha if s.startswith("CHAN")]
                 if canais:
                     log(f"Feche os canais antes: {canais}", C.YELLOW)
                     continue
-                send_raw({"tipo":"disconectado","payload":"","cifrado":False})
-                tk("disconectado"); break
+                send_raw({"tipo":"desconectar","payload":"","cifrado":False})
+                tk("desconectar")
+                break
+
 
             elif cmd == "transicao":
-                if len(partes) < 2:
-                    log("Uso: transicao <token>", C.YELLOW)
+                if not resto:
+                    log("Uso: transicao <token>", C.YELLOW);
                     continue
-                tok = partes[1]
-                log(f"Testando Transição: {cor(tok, C.RED)}", C.RED)
-                send_raw({"tipo":tok,"payload":"","cifrado":False})
+                tok = resto.split()[0]
+                log(f"Realizando transicao: {cor(tok, C.RED)}", C.RED)
+                send_raw({"tipo": tok, "payload": "", "cifrado": False})
                 tk(tok)
+                log("Sistema continua — aviso registrado, não encerrado", C.YELLOW)
+
 
             elif cmd == "pilha":
                 print(f"\n  Estado : {cor(apdt.estado, C.CYAN)}")
@@ -197,9 +234,6 @@ def cliente(host, porta, usuario, senha):
 
             elif cmd == "ajuda":
                 print(AJUDA)
-
-            elif cmd == "sair":
-                log("Saindo sem disconectar — pilha não ficará vazia", C.RED); break
 
             else:
                 log(f"Comando desconhecido: '{cmd}' (ajuda para ver opções)", C.YELLOW)

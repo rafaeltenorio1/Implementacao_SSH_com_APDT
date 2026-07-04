@@ -26,7 +26,7 @@ TOKENS_VALIDOS = {
     "servico_req", "servico_ok", "usuario_req", "usuario_ok",
     "canal_aberto", "canal_conf", "canal_falha", "canal_fechado",
     "requisicao", "req_falha", "dados", "req_finalizada",
-    "disconectado",
+    "desconectado",
 }
 
 
@@ -232,19 +232,26 @@ class APDT:
                     return self._reg(t, f"P5: CANAL → ... canal_fechado  [pop {chan}]")
                 return self._aviso(t, f"FALHA: 'canal_fechado' inválido pois não tem canal aberto (topo={topo})")
 
-            elif t == "disconectado":
+            elif t == "desconectar":
                 if topo == "SESSION":
                     self._pop(); self._pop()   # pop SESSION + pop $
                     self.estado = "q12"
                     self.status = Status.ACEITO
                     return self._reg(t,
-                        "P4: SESSAO → CANAL disconectado  [pop SESSION, pop $ → ∅]",aceito=True)
+                        "P4: SESSAO → CANAL desconectado  [pop SESSION, pop $ → ∅]",aceito=True)
 
                 elif topo.startswith("CHAN"):
-                    return self._aviso(t,f"disconectado com canal ainda aberto: {topo}")
+                    return self._aviso(t,f"desconectado com canal ainda aberto: {topo}")
                 return self._aviso(t, f"FALHA: pilha inesperada: {topo}")
 
-            return self._aviso(t,f"'{t}' inválido em q7 — esperado: canal_aberto, canal_fechado ou disconectado")
+            elif t == "req_finalizada":
+                if self.topo().startswith("REQ:"):
+                    req = self._pop()
+                    self.estado = "q7"
+                    return self._reg(t, f"P8: req_finalizada  [pop {req}]")
+                return self._aviso(t, "req_finalizada sem REQid na pilha")
+
+            return self._aviso(t,f"'{t}' inválido em q7 — esperado: canal_aberto, canal_fechado ou desconectar")
 
         # ── CANAL q8 — aguarda conf/fail (P5/P6) ──────────────────
         elif q == "q8":
