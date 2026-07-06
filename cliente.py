@@ -25,7 +25,7 @@ AJUDA = """
   abrir canal             Abre um novo canal
   fechar canal            Fecha o canal do topo da pilha
   abrir req <recurso>     Requisição de recurso
-  fechar req              Finaliza a requisição do topo
+  finalizar req           Finaliza a requisição do topo
   msg <texto>             Envia dados cifrados
   desconectar             Encerra a sessão
   ────────────────────────────────────────────────────
