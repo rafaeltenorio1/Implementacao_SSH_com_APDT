@@ -323,6 +323,14 @@ class APDT:
                 self.estado = "q10"
                 return self._reg(t, f"P8: REQUISICAO aninhada  [push {rid}]")
 
+            elif t == "canal_fechado":
+                topo = self.topo()
+                if topo.startswith("CHAN"):
+                    chan = self._pop()
+                    self.estado = "q7"
+                    return self._reg(t, f"P5: ... canal_fechado  [pop {chan}]")
+                return self._aviso(t, f"canal_fechado com req pendente (topo={topo})")
+
             elif t == "req_finalizada":
                 if self.topo().startswith("REQ:"):
                     req = self._pop()
